@@ -207,7 +207,7 @@ async function syncToRemoteWebhook(entry) {
   }
 }
 
-// 4. Export CSV
+// 4. Export CSV with the exact Common, Heavy, and Light User questions
 export function exportFeedbackCSV() {
   const feedback = getAllFeedback();
   if (!feedback.length) {
@@ -219,26 +219,82 @@ export function exportFeedbackCSV() {
     'Date Submitted',
     'User Name',
     'User Phone',
-    'Satisfaction Rating (1-5)',
-    'Primary Brokers',
-    'Pain Points',
-    'Pain Points Details / Other',
-    'Improvements Wanted',
-    'Improvement Details / Other',
-    'Verbatim User Notes'
+    'User Segment',
+    'Overall CSAT (1-5)',
+
+    // Common Set
+    '[Common] Review Frequency (Daily/Weekly/Monthly)',
+    '[Common] Current Tracking Tools & Spreadsheets',
+    '[Common] Last Investment Decision & Trigger',
+    '[Common] Hardest Part About Managing Portfolio',
+    '[Common] First Thing You Want to Know',
+    '[Common] Past Regret Mistake & What Info Could Prevent It',
+
+    // Heavy User Questions
+    '[Heavy] Return Frequency & Open Triggers',
+    '[Heavy] One Thing Wish It Showed',
+    '[Heavy] Importance of "Why" (Verdict vs Detailed Rationale)',
+    '[Heavy] Trust AI "Sell X Buy Y" Directly vs Need Detailed Analysis',
+    '[Heavy] Current Rebalancing & Want AI to Guide It',
+    '[Heavy] Desired Alerts (News, Valuation, Rebalance)',
+    '[Heavy] Manage for Family / Multi-Portfolio Support',
+    '[Heavy] Most Annoying Thing ("Why can\'t they fix this?")',
+    '[Heavy] Tool Switched To When Leaving App',
+
+    // Light User Questions
+    '[Light] Why Not Used Portfolio Analysis Much',
+    '[Light] Sync Attempt Experience / Reason Stopped',
+    '[Light] Expectation vs Reality',
+    '[Light] Ideal Picture of AI Portfolio Analysis',
+    '[Light] Useful Insights Gotten Anywhere Else',
+    '[Light] Prefer WhatsApp Summary Over App',
+
+    // Additional Notes
+    'General Call Notes & Verbatim Quotes'
   ];
 
+  const escapeCSV = (val) => {
+    if (val === null || val === undefined) return '""';
+    if (Array.isArray(val)) return `"${val.join(', ').replace(/"/g, '""')}"`;
+    return `"${String(val).replace(/"/g, '""')}"`;
+  };
+
   const rows = feedback.map(f => [
-    `"${f.createdAt ? f.createdAt.split('T')[0] : ''}"`,
-    `"${(f.userName || '').replace(/"/g, '""')}"`,
-    `"${f.userPhone || ''}"`,
-    `"${f.satisfactionScore || ''}"`,
-    `"${(f.brokers || []).join(', ')}"`,
-    `"${(f.painPoints || []).join('; ')}"`,
-    `"${(f.customPainPoint || '').replace(/"/g, '""')}"`,
-    `"${(f.improvements || []).join('; ')}"`,
-    `"${(f.customImprovement || '').replace(/"/g, '""')}"`,
-    `"${(f.notes || '').replace(/"/g, '""')}"`
+    escapeCSV(f.createdAt ? f.createdAt.split('T')[0] : ''),
+    escapeCSV(f.userName),
+    escapeCSV(f.userPhone),
+    escapeCSV(f.userType === 'light' ? 'Light User' : 'Heavy User'),
+    escapeCSV(f.satisfactionScore || ''),
+
+    // Common
+    escapeCSV(f.reviewFrequency),
+    escapeCSV(f.currentTrackingTools),
+    escapeCSV(f.lastInvestmentDecision),
+    escapeCSV(f.hardestPartManaging),
+    escapeCSV(f.firstThingToKnow),
+    escapeCSV(f.pastRegretMistake),
+
+    // Heavy
+    escapeCSV(f.returnFrequencyTrigger),
+    escapeCSV(f.missingThing),
+    escapeCSV(f.whyExplanationImportance),
+    escapeCSV(f.aiRecommendationTrust),
+    escapeCSV(f.rebalancingHandling),
+    escapeCSV(f.desiredAlerts),
+    escapeCSV(f.familyPortfolios),
+    escapeCSV(f.mostAnnoyingThing),
+    escapeCSV(f.toolSwitchingMoment),
+
+    // Light
+    escapeCSV(f.lightWhyNotUsed),
+    escapeCSV(f.syncAttemptExperience),
+    escapeCSV(f.expectationVsReality),
+    escapeCSV(f.idealAiPicture),
+    escapeCSV(f.usefulInsightsElsewhere),
+    escapeCSV(f.preferWhatsappSummary),
+
+    // Notes
+    escapeCSV(f.notes)
   ]);
 
   const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
@@ -285,4 +341,3 @@ export function importDatabaseJSON(file) {
     reader.readAsText(file);
   });
 }
-
