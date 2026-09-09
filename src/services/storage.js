@@ -193,7 +193,25 @@ export async function loadRemoteFeedback() {
         if (list && Array.isArray(list)) {
           const localData = getAllFeedback();
           const mergedMap = new Map();
-          list.forEach(item => mergedMap.set(item.id || item.userId, item));
+          
+          // Filter out dummy test submissions and sanitize phone numbers
+          const validRemoteList = list
+            .filter(item => item && item.id && item.userName !== 'Test User')
+            .map(item => {
+              let phone = item.userPhone;
+              if (phone === '#ERROR!' || !phone) {
+                const matched = POWER_USERS.find(u => u.id === item.userId || u.name === item.userName);
+                if (matched) phone = matched.phone;
+              } else if (typeof phone === 'string' && phone.startsWith("'")) {
+                phone = phone.substring(1);
+              }
+              return {
+                ...item,
+                userPhone: phone
+              };
+            });
+
+          validRemoteList.forEach(item => mergedMap.set(item.id || item.userId, item));
           localData.forEach(item => {
             const key = item.id || item.userId;
             if (!mergedMap.has(key)) {
@@ -221,19 +239,27 @@ export async function loadRemoteFeedback() {
 }
 
 // 3. Settings & Webhooks
+export const DEFAULT_GOOGLE_SHEETS_WEBHOOK = 'https://script.google.com/macros/s/AKfycbwzhhTLZ9c1LauiIRPKi2TA9dBkW-q5ecL2eUBTrOauKZM67mI3O9SBPOH644Ji_AV95w/exec';
+
 export function getStorageSettings() {
   try {
     const data = localStorage.getItem(STORAGE_KEY_SETTINGS);
     const defaults = {
-      googleSheetsWebhook: import.meta.env.VITE_GOOGLE_SHEETS_WEBHOOK || '',
+      googleSheetsWebhook: import.meta.env.VITE_GOOGLE_SHEETS_WEBHOOK || DEFAULT_GOOGLE_SHEETS_WEBHOOK,
       supabaseUrl: import.meta.env.VITE_SUPABASE_URL || '',
       supabaseAnonKey: import.meta.env.VITE_SUPABASE_ANON_KEY || ''
     };
     if (!data) return defaults;
-    return { ...defaults, ...JSON.parse(data) };
+    const parsed = JSON.parse(data);
+    return { 
+      ...defaults, 
+      ...parsed,
+      // Ensure the active webhook is default if user hasn't overridden with custom
+      googleSheetsWebhook: parsed.googleSheetsWebhook || DEFAULT_GOOGLE_SHEETS_WEBHOOK
+    };
   } catch (err) {
     return {
-      googleSheetsWebhook: '',
+      googleSheetsWebhook: DEFAULT_GOOGLE_SHEETS_WEBHOOK,
       supabaseUrl: '',
       supabaseAnonKey: ''
     };
@@ -253,17 +279,24 @@ async function syncToRemoteWebhook(entry) {
   
   if (settings.googleSheetsWebhook) {
     try {
+      // Format phone number with leading apostrophe so Google Sheets treats it as text instead of formula
+      const payload = {
+        ...entry,
+        userPhone: entry.userPhone ? "'" + entry.userPhone : ''
+      };
+
       await fetch(settings.googleSheetsWebhook, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         mode: 'no-cors',
-        body: JSON.stringify(entry)
+        body: JSON.stringify(payload)
       });
       console.log('✅ Synchronized feedback to Google Sheets Webhook');
     } catch (e) {
       console.warn('⚠️ Webhook sync failed:', e.message);
     }
   }
+
 
   if (settings.supabaseUrl && settings.supabaseAnonKey) {
     try {
