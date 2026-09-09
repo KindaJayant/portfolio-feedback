@@ -14,7 +14,8 @@ import {
   deleteFeedback, 
   resetAllData,
   exportFeedbackCSV,
-  getStorageSettings 
+  getStorageSettings,
+  loadRemoteFeedback
 } from './services/storage';
 
 export default function App() {
@@ -40,11 +41,18 @@ export default function App() {
     return () => window.removeEventListener('storage', handleStorageChange);
   }, []);
 
-  const refreshData = () => {
+  const refreshData = async () => {
     setUsers(getStoredUsers());
     setFeedbackList(getAllFeedback());
     setSettings(getStorageSettings());
+
+    const remote = await loadRemoteFeedback();
+    if (remote) {
+      setUsers(remote.users);
+      setFeedbackList(remote.feedback);
+    }
   };
+
 
   // 1. Click user name -> Open Questionnaire Modal for that specific person
   const handleOpenUserQuestions = (user) => {

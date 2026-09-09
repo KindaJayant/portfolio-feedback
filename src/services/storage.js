@@ -142,6 +142,49 @@ export function resetAllData() {
   localStorage.setItem(STORAGE_KEY_USERS, JSON.stringify(POWER_USERS));
 }
 
+// Load remote feedback on startup (if Supabase is configured)
+export async function loadRemoteFeedback() {
+  const settings = getStorageSettings();
+  if (settings.supabaseUrl && settings.supabaseAnonKey) {
+    try {
+      const url = `${settings.supabaseUrl.replace(/\/$/, '')}/rest/v1/portfolio_feedback?select=*`;
+      const res = await fetch(url, {
+        headers: {
+          'apikey': settings.supabaseAnonKey,
+          'Authorization': `Bearer ${settings.supabaseAnonKey}`
+        }
+      });
+      if (res.ok) {
+        const remoteData = await res.json();
+        if (Array.isArray(remoteData)) {
+          const localData = getAllFeedback();
+          const mergedMap = new Map();
+          remoteData.forEach(item => mergedMap.set(item.id || item.userId, item));
+          localData.forEach(item => {
+            const key = item.id || item.userId;
+            if (!mergedMap.has(key)) {
+              mergedMap.set(key, item);
+            }
+          });
+          const mergedList = Array.from(mergedMap.values());
+          localStorage.setItem(STORAGE_KEY_FEEDBACK, JSON.stringify(mergedList));
+          
+          const users = getStoredUsers();
+          const updatedUsers = users.map(u => {
+            const hasFeedback = mergedList.some(f => f.userId === u.id);
+            return hasFeedback ? { ...u, checked: true } : u;
+          });
+          saveUsers(updatedUsers);
+          return { feedback: mergedList, users: updatedUsers };
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to load remote feedback from Supabase:', err);
+    }
+  }
+  return null;
+}
+
 // 3. Settings & Webhooks
 export function getStorageSettings() {
   try {
