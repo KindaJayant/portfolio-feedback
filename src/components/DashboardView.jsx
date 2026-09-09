@@ -28,6 +28,9 @@ export default function DashboardView({
   const [activeFilter, setActiveFilter] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
   const [copiedId, setCopiedId] = useState(null);
+  const [copiedLinkUserId, setCopiedLinkUserId] = useState(null);
+  const [isAddUserOpen, setIsAddUserOpen] = useState(false);
+  const [newUser, setNewUser] = useState({ name: '', phone: '', email: '', tier: 'Yearly Plan' });
 
   // Statistics
   const totalUsers = users.length;
@@ -67,6 +70,14 @@ export default function DashboardView({
     navigator.clipboard.writeText(text);
     setCopiedId(user.id);
     setTimeout(() => setCopiedId(null), 2000);
+  };
+
+  const copyPersonalizedLink = (user) => {
+    const origin = window.location.origin;
+    const url = `${origin}/?uid=${encodeURIComponent(user.id)}&name=${encodeURIComponent(user.name)}&phone=${encodeURIComponent(user.phone)}&email=${encodeURIComponent(user.email || '')}`;
+    navigator.clipboard.writeText(url);
+    setCopiedLinkUserId(user.id);
+    setTimeout(() => setCopiedLinkUserId(null), 2000);
   };
 
   return (
@@ -267,6 +278,16 @@ export default function DashboardView({
                           className="p-2 bg-oat-100 hover:bg-oat-200 text-charcoal-700 rounded-lg transition-colors border border-oat-300"
                         >
                           {copiedId === user.id ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                        </button>
+
+                        {/* Copy User Personal Link Button */}
+                        <button
+                          onClick={() => copyPersonalizedLink(user)}
+                          title="Copy pre-filled personalized questionnaire link"
+                          className="p-2 bg-blue-50 hover:bg-blue-100 text-blue-800 rounded-lg transition-colors border border-blue-200 flex items-center space-x-1 text-xs font-bold"
+                        >
+                          {copiedLinkUserId === user.id ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Share2 className="w-3.5 h-3.5" />}
+                          <span className="hidden md:inline">{copiedLinkUserId === user.id ? 'Copied' : 'Link'}</span>
                         </button>
 
                         {/* Log Interview Modal Trigger */}

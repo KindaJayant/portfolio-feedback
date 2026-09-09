@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Star, 
   Check, 
@@ -15,6 +15,7 @@ import confetti from 'canvas-confetti';
 
 export default function PublicQuestionnaireView({ onSaveFeedback }) {
   const [formData, setFormData] = useState({
+    userId: '',
     userName: '',
     userPhone: '',
     userEmail: '',
@@ -30,6 +31,29 @@ export default function PublicQuestionnaireView({ onSaveFeedback }) {
 
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Auto-fill from URL parameters (e.g. ?name=Gaurav+Agrawal&phone=%2B917879213732&uid=meyswp82pamlknsnyfr5b0br)
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const uid = params.get('uid') || params.get('userId') || '';
+      const name = params.get('name') || params.get('userName') || '';
+      const phone = params.get('phone') || params.get('userPhone') || '';
+      const email = params.get('email') || params.get('userEmail') || '';
+
+      if (name || phone || email || uid) {
+        setFormData(prev => ({
+          ...prev,
+          userId: uid || prev.userId,
+          userName: name || prev.userName,
+          userPhone: phone || prev.userPhone,
+          userEmail: email || prev.userEmail
+        }));
+      }
+    } catch (e) {
+      console.warn('Could not parse query params', e);
+    }
+  }, []);
 
   const toggleBroker = (b) => {
     setFormData(prev => ({
