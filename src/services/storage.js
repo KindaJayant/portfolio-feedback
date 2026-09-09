@@ -1,10 +1,10 @@
 import { POWER_USERS } from '../data/powerUsers';
 
-const STORAGE_KEY_FEEDBACK = 'superinvesting_portfolio_feedback_v1';
-const STORAGE_KEY_USERS = 'superinvesting_power_users_v1';
-const STORAGE_KEY_SETTINGS = 'superinvesting_storage_settings_v1';
+const STORAGE_KEY_USERS = 'superinvesting_power_users_v2';
+const STORAGE_KEY_FEEDBACK = 'superinvesting_portfolio_feedback_v2';
+const STORAGE_KEY_SETTINGS = 'superinvesting_storage_settings_v2';
 
-// Initialize pre-seeded power users if not already present
+// 1. Load users from localStorage (or fallback to the 10 real power users)
 export function getStoredUsers() {
   try {
     const data = localStorage.getItem(STORAGE_KEY_USERS);
@@ -12,7 +12,13 @@ export function getStoredUsers() {
       localStorage.setItem(STORAGE_KEY_USERS, JSON.stringify(POWER_USERS));
       return POWER_USERS;
     }
-    return JSON.parse(data);
+    const parsed = JSON.parse(data);
+    // Ensure all 10 power users exist and retain their phone numbers & checked state
+    const merged = POWER_USERS.map(defaultUser => {
+      const existing = parsed.find(p => p.id === defaultUser.id || p.phone === defaultUser.phone);
+      return existing ? { ...defaultUser, ...existing } : defaultUser;
+    });
+    return merged;
   } catch (err) {
     console.error('Failed to load users from localStorage:', err);
     return POWER_USERS;
@@ -27,16 +33,11 @@ export function saveUsers(users) {
   }
 }
 
-export function updateUserStatus(userId, status, assignedTo = null, lastContacted = new Date().toISOString()) {
+export function toggleUserChecked(userId) {
   const users = getStoredUsers();
   const updated = users.map(u => {
     if (u.id === userId) {
-      return {
-        ...u,
-        status: status || u.status,
-        assignedTo: assignedTo !== null ? assignedTo : u.assignedTo,
-        lastContacted: lastContacted
-      };
+      return { ...u, checked: !u.checked };
     }
     return u;
   });
@@ -44,7 +45,19 @@ export function updateUserStatus(userId, status, assignedTo = null, lastContacte
   return updated;
 }
 
-// Get all feedback entries
+export function setUserChecked(userId, checked) {
+  const users = getStoredUsers();
+  const updated = users.map(u => {
+    if (u.id === userId) {
+      return { ...u, checked: Boolean(checked) };
+    }
+    return u;
+  });
+  saveUsers(updated);
+  return updated;
+}
+
+// 2. Feedback entries management (STRICTLY REAL DATA, ZERO DUMMY DATA)
 export function getAllFeedback() {
   try {
     const data = localStorage.getItem(STORAGE_KEY_FEEDBACK);
@@ -56,41 +69,65 @@ export function getAllFeedback() {
   }
 }
 
-// Save a new feedback entry
+export function getFeedbackForUser(userId) {
+  const feedbackList = getAllFeedback();
+  return feedbackList.find(f => f.userId === userId) || null;
+}
+
 export async function saveFeedback(feedbackEntry) {
   try {
     const existing = getAllFeedback();
-    const newEntry = {
+    
+    // Check if an entry for this user already exists
+    const existingIndex = existing.findIndex(f => (feedbackEntry.userId && f.userId === feedbackEntry.userId) || f.id === feedbackEntry.id);
+    
+    const entryToSave = {
       id: feedbackEntry.id || `fb_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
-      createdAt: new Date().toISOString(),
+      createdAt: feedbackEntry.createdAt || new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
       ...feedbackEntry
     };
-    
-    // Save to local storage
-    const updated = [newEntry, ...existing];
-    localStorage.setItem(STORAGE_KEY_FEEDBACK, JSON.stringify(updated));
 
-    // Update corresponding user status if linked to a user
-    if (newEntry.userId) {
-      updateUserStatus(newEntry.userId, 'Completed', newEntry.interviewerName || null);
+    let updatedList;
+    if (existingIndex >= 0) {
+      updatedList = [...existing];
+      updatedList[existingIndex] = entryToSave;
+    } else {
+      updatedList = [entryToSave, ...existing];
     }
 
-    // Sync to external services if configured (Google Sheets Webhook or Supabase)
-    syncToRemoteWebhook(newEntry).catch(console.warn);
+    localStorage.setItem(STORAGE_KEY_FEEDBACK, JSON.stringify(updatedList));
 
-    return newEntry;
+    // Automatically mark the user as checked
+    if (entryToSave.userId) {
+      setUserChecked(entryToSave.userId, true);
+    }
+
+    // Sync to remote webhook if configured
+    syncToRemoteWebhook(entryToSave).catch(console.warn);
+
+    return entryToSave;
   } catch (err) {
     console.error('Failed to save feedback:', err);
     throw err;
   }
 }
 
-// Delete feedback entry
 export function deleteFeedback(id) {
   try {
     const existing = getAllFeedback();
+    const entryToDelete = existing.find(f => f.id === id);
     const updated = existing.filter(f => f.id !== id);
     localStorage.setItem(STORAGE_KEY_FEEDBACK, JSON.stringify(updated));
+
+    // If entry had a userId, uncheck if no other feedback exists
+    if (entryToDelete && entryToDelete.userId) {
+      const stillHasFeedback = updated.some(f => f.userId === entryToDelete.userId);
+      if (!stillHasFeedback) {
+        setUserChecked(entryToDelete.userId, false);
+      }
+    }
+
     return updated;
   } catch (err) {
     console.error('Failed to delete feedback:', err);
@@ -98,16 +135,21 @@ export function deleteFeedback(id) {
   }
 }
 
-// Settings management for Google Sheets / Supabase integrations
+export function resetAllData() {
+  localStorage.removeItem(STORAGE_KEY_USERS);
+  localStorage.removeItem(STORAGE_KEY_FEEDBACK);
+  // Re-seed clean power users with checked = false
+  localStorage.setItem(STORAGE_KEY_USERS, JSON.stringify(POWER_USERS));
+}
+
+// 3. Settings & Webhooks
 export function getStorageSettings() {
   try {
     const data = localStorage.getItem(STORAGE_KEY_SETTINGS);
     const defaults = {
       googleSheetsWebhook: import.meta.env.VITE_GOOGLE_SHEETS_WEBHOOK || '',
       supabaseUrl: import.meta.env.VITE_SUPABASE_URL || '',
-      supabaseAnonKey: import.meta.env.VITE_SUPABASE_ANON_KEY || '',
-      notionWebhook: import.meta.env.VITE_NOTION_WEBHOOK || '',
-      teamMembers: ['Jayant', 'Akshay', 'Jatin', 'Rohan', 'Product Team']
+      supabaseAnonKey: import.meta.env.VITE_SUPABASE_ANON_KEY || ''
     };
     if (!data) return defaults;
     return { ...defaults, ...JSON.parse(data) };
@@ -115,9 +157,7 @@ export function getStorageSettings() {
     return {
       googleSheetsWebhook: '',
       supabaseUrl: '',
-      supabaseAnonKey: '',
-      notionWebhook: '',
-      teamMembers: ['Jayant', 'Akshay', 'Jatin', 'Rohan', 'Product Team']
+      supabaseAnonKey: ''
     };
   }
 }
@@ -130,11 +170,9 @@ export function saveStorageSettings(settings) {
   }
 }
 
-// Multi-destination serverless sync (Google Sheets webhook / Supabase REST API)
 async function syncToRemoteWebhook(entry) {
   const settings = getStorageSettings();
   
-  // 1. Google Sheets Webhook / Make / Zapier
   if (settings.googleSheetsWebhook) {
     try {
       await fetch(settings.googleSheetsWebhook, {
@@ -149,7 +187,6 @@ async function syncToRemoteWebhook(entry) {
     }
   }
 
-  // 2. Supabase Direct REST API (if credentials provided)
   if (settings.supabaseUrl && settings.supabaseAnonKey) {
     try {
       const url = `${settings.supabaseUrl.replace(/\/$/, '')}/rest/v1/portfolio_feedback`;
@@ -170,7 +207,50 @@ async function syncToRemoteWebhook(entry) {
   }
 }
 
-// Export database as downloadable JSON
+// 4. Export CSV
+export function exportFeedbackCSV() {
+  const feedback = getAllFeedback();
+  if (!feedback.length) {
+    alert('No feedback entries to export yet.');
+    return;
+  }
+
+  const headers = [
+    'Date Submitted',
+    'User Name',
+    'User Phone',
+    'Satisfaction Rating (1-5)',
+    'Primary Brokers',
+    'Pain Points',
+    'Pain Points Details / Other',
+    'Improvements Wanted',
+    'Improvement Details / Other',
+    'Verbatim User Notes'
+  ];
+
+  const rows = feedback.map(f => [
+    `"${f.createdAt ? f.createdAt.split('T')[0] : ''}"`,
+    `"${(f.userName || '').replace(/"/g, '""')}"`,
+    `"${f.userPhone || ''}"`,
+    `"${f.satisfactionScore || ''}"`,
+    `"${(f.brokers || []).join(', ')}"`,
+    `"${(f.painPoints || []).join('; ')}"`,
+    `"${(f.customPainPoint || '').replace(/"/g, '""')}"`,
+    `"${(f.improvements || []).join('; ')}"`,
+    `"${(f.customImprovement || '').replace(/"/g, '""')}"`,
+    `"${(f.notes || '').replace(/"/g, '""')}"`
+  ]);
+
+  const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `superinvesting_portfolio_feedback_${new Date().toISOString().split('T')[0]}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 export function exportDatabaseJSON() {
   const data = {
     exportedAt: new Date().toISOString(),
@@ -187,63 +267,6 @@ export function exportDatabaseJSON() {
   URL.revokeObjectURL(url);
 }
 
-// Export feedback as CSV
-export function exportFeedbackCSV() {
-  const feedback = getAllFeedback();
-  if (!feedback.length) {
-    alert('No feedback entries to export.');
-    return;
-  }
-
-  const headers = [
-    'Feedback ID',
-    'Date Submitted',
-    'User ID',
-    'User Name',
-    'Phone',
-    'Email',
-    'Entry Mode',
-    'Interviewer',
-    'Call Status',
-    'Satisfaction Rating (1-5)',
-    'Primary Brokers',
-    'Selected Pain Points',
-    'Top Feature Wishlist',
-    'Missing AI Diagnostic Insights',
-    'Verbatim User Quote / Feedback',
-    'Action Items'
-  ];
-
-  const rows = feedback.map(f => [
-    `"${f.id || ''}"`,
-    `"${f.createdAt ? f.createdAt.split('T')[0] : ''}"`,
-    `"${f.userId || ''}"`,
-    `"${(f.userName || '').replace(/"/g, '""')}"`,
-    `"${f.userPhone || ''}"`,
-    `"${f.userEmail || ''}"`,
-    `"${f.mode || 'Team Interview'}"`,
-    `"${f.interviewerName || ''}"`,
-    `"${f.callStatus || 'Completed'}"`,
-    `"${f.satisfactionScore || ''}"`,
-    `"${(f.brokers || []).join(', ')}"`,
-    `"${(f.painPoints || []).join('; ')}"`,
-    `"${(f.featureRequests || []).join('; ')}"`,
-    `"${(f.missingAiInsights || '').replace(/"/g, '""')}"`,
-    `"${(f.verbatimFeedback || '').replace(/"/g, '""')}"`,
-    `"${(f.actionItems || '').replace(/"/g, '""')}"`
-  ]);
-
-  const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
-  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `superinvesting_portfolio_feedback_${new Date().toISOString().split('T')[0]}.csv`;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
-// Restore database from JSON backup file
 export function importDatabaseJSON(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -262,3 +285,4 @@ export function importDatabaseJSON(file) {
     reader.readAsText(file);
   });
 }
+

@@ -1,36 +1,38 @@
 import React, { useState, useEffect } from 'react';
 import Navbar from './components/Navbar';
 import DashboardView from './components/DashboardView';
-import InterviewLoggerModal from './components/InterviewLoggerModal';
-import PublicQuestionnaireView from './components/PublicQuestionnaireView';
+import UserQuestionnaireModal from './components/UserQuestionnaireModal';
 import ExportModal from './components/ExportModal';
 import SettingsModal from './components/SettingsModal';
 import { 
   getStoredUsers, 
+  toggleUserChecked,
+  setUserChecked,
   getAllFeedback, 
+  getFeedbackForUser,
   saveFeedback, 
-  updateUserStatus, 
   deleteFeedback, 
+  resetAllData,
+  exportFeedbackCSV,
   getStorageSettings 
 } from './services/storage';
 
 export default function App() {
-  const [currentTab, setCurrentTab] = useState('team'); // 'team' | 'insights' | 'form'
   const [users, setUsers] = useState([]);
   const [feedbackList, setFeedbackList] = useState([]);
   const [settings, setSettings] = useState(getStorageSettings());
 
-  // Modal states
-  const [isLoggerOpen, setIsLoggerOpen] = useState(false);
+  // Modals state
+  const [selectedUserForModal, setSelectedUserForModal] = useState(null);
+  const [isQuestionnaireOpen, setIsQuestionnaireOpen] = useState(false);
   const [isExportOpen, setIsExportOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [selectedUserForCall, setSelectedUserForCall] = useState(null);
 
-  // Load data on mount
+  // Load fresh data on mount
   useEffect(() => {
     refreshData();
 
-    // Listen for storage events (cross-tab synchronization)
+    // Listen for storage events (e.g. cross-tab updates)
     const handleStorageChange = () => {
       refreshData();
     };
@@ -44,92 +46,94 @@ export default function App() {
     setSettings(getStorageSettings());
   };
 
-  const handleOpenLogger = (user = null) => {
-    setSelectedUserForCall(user);
-    setIsLoggerOpen(true);
+  // 1. Click user name -> Open Questionnaire Modal for that specific person
+  const handleOpenUserQuestions = (user) => {
+    setSelectedUserForModal(user);
+    setIsQuestionnaireOpen(true);
   };
 
+  // 2. Toggle user checked state directly
+  const handleToggleUserChecked = (userId) => {
+    const updated = toggleUserChecked(userId);
+    setUsers(updated);
+  };
+
+  // Explicitly set checked state
+  const handleSetUserChecked = (userId, isChecked) => {
+    const updated = setUserChecked(userId, isChecked);
+    setUsers(updated);
+  };
+
+  // 3. Save feedback from modal -> updates storage, marks user checked, refreshes list
   const handleSaveFeedbackEntry = async (entry) => {
     const saved = await saveFeedback(entry);
     refreshData();
     return saved;
   };
 
-  const handleUpdateUserStatus = (userId, status) => {
-    const updated = updateUserStatus(userId, status);
-    setUsers(updated);
+  // 4. Delete feedback entry
+  const handleDeleteFeedbackEntry = (id) => {
+    const updated = deleteFeedback(id);
+    refreshData();
   };
 
-  const handleDeleteFeedbackEntry = (id) => {
-    if (window.confirm('Are you sure you want to delete this interview record?')) {
-      const updated = deleteFeedback(id);
-      setFeedbackList(updated);
+  // 5. Reset all test responses back to fresh 0/10 state
+  const handleResetAllData = () => {
+    if (window.confirm('Are you sure you want to reset all responses back to 0/10? This will clear any test feedback.')) {
+      resetAllData();
+      refreshData();
     }
   };
 
-  const completedCount = users.filter(u => u.status === 'Completed').length;
+  const completedCount = users.filter(u => u.checked).length;
+  const existingFeedbackForSelectedUser = selectedUserForModal 
+    ? feedbackList.find(f => f.userId === selectedUserForModal.id) 
+    : null;
 
   return (
     <div className="min-h-screen bg-[#F5F2EB] flex flex-col font-sans text-charcoal-900 selection:bg-emerald-900 selection:text-white">
       
       {/* Top Navbar */}
       <Navbar
-        currentTab={currentTab}
-        setCurrentTab={setCurrentTab}
-        onOpenLogger={() => handleOpenLogger(null)}
         onOpenExport={() => setIsExportOpen(true)}
         onOpenSettings={() => setIsSettingsOpen(true)}
+        onResetData={handleResetAllData}
         totalUsersCount={users.length}
         completedCount={completedCount}
       />
 
-      {/* Main View Area */}
+      {/* Main Single-Screen View: 10-User Checklist & Live Insights */}
       <main className="flex-1">
-        {currentTab === 'team' && (
-          <DashboardView
-            users={users}
-            feedbackList={feedbackList}
-            onSelectUserForCall={(user) => handleOpenLogger(user)}
-            onUpdateUserStatus={handleUpdateUserStatus}
-            onDeleteFeedback={handleDeleteFeedbackEntry}
-          />
-        )}
-
-        {currentTab === 'insights' && (
-          <DashboardView
-            users={users}
-            feedbackList={feedbackList}
-            onSelectUserForCall={(user) => handleOpenLogger(user)}
-            onUpdateUserStatus={handleUpdateUserStatus}
-            onDeleteFeedback={handleDeleteFeedbackEntry}
-          />
-        )}
-
-        {currentTab === 'form' && (
-          <PublicQuestionnaireView
-            onSaveFeedback={handleSaveFeedbackEntry}
-          />
-        )}
+        <DashboardView
+          users={users}
+          feedbackList={feedbackList}
+          onSelectUser={handleOpenUserQuestions}
+          onToggleUserChecked={handleToggleUserChecked}
+          onDeleteFeedback={handleDeleteFeedbackEntry}
+          onOpenExport={() => setIsExportOpen(true)}
+        />
       </main>
 
       {/* Footer */}
       <footer className="py-6 border-t border-charcoal-200/60 bg-[#FAF8F5] text-center text-xs font-mono text-charcoal-500">
-        <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
-          <span>SuperInvesting.ai — Internal Product Research & Portfolio Feedback Hub</span>
-          <span>Zero-Backend Serverless Architecture • Vercel Ready</span>
+        <div className="max-w-6xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
+          <span>SuperInvesting.ai — Portfolio Section Power-User Research</span>
+          <span>Zero Backend Required • Vercel Ready</span>
         </div>
       </footer>
 
-      {/* Modals */}
-      <InterviewLoggerModal
-        isOpen={isLoggerOpen}
-        onClose={() => setIsLoggerOpen(false)}
-        selectedUser={selectedUserForCall}
-        allUsers={users}
+      {/* Questionnaire Modal: Opens upon clicking any user's name */}
+      <UserQuestionnaireModal
+        isOpen={isQuestionnaireOpen}
+        onClose={() => setIsQuestionnaireOpen(false)}
+        user={selectedUserForModal}
+        existingFeedback={existingFeedbackForSelectedUser}
         onSaveFeedback={handleSaveFeedbackEntry}
-        teamMembers={settings.teamMembers || ['Jayant', 'Akshay', 'Jatin', 'Product Team']}
+        onDeleteFeedback={handleDeleteFeedbackEntry}
+        onToggleChecked={handleSetUserChecked}
       />
 
+      {/* Export CSV Modal */}
       <ExportModal
         isOpen={isExportOpen}
         onClose={() => setIsExportOpen(false)}
@@ -138,6 +142,7 @@ export default function App() {
         onDataRestored={refreshData}
       />
 
+      {/* Settings Modal (Remote sync / webhook) */}
       <SettingsModal
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
