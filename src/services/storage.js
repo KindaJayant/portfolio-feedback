@@ -182,6 +182,41 @@ export async function loadRemoteFeedback() {
       console.warn('Failed to load remote feedback from Supabase:', err);
     }
   }
+
+  // Also check Google Sheets Webhook if provided
+  if (settings.googleSheetsWebhook) {
+    try {
+      const res = await fetch(settings.googleSheetsWebhook);
+      if (res.ok) {
+        const remoteData = await res.json();
+        const list = remoteData.feedback || (Array.isArray(remoteData) ? remoteData : null);
+        if (list && Array.isArray(list)) {
+          const localData = getAllFeedback();
+          const mergedMap = new Map();
+          list.forEach(item => mergedMap.set(item.id || item.userId, item));
+          localData.forEach(item => {
+            const key = item.id || item.userId;
+            if (!mergedMap.has(key)) {
+              mergedMap.set(key, item);
+            }
+          });
+          const mergedList = Array.from(mergedMap.values());
+          localStorage.setItem(STORAGE_KEY_FEEDBACK, JSON.stringify(mergedList));
+          
+          const users = getStoredUsers();
+          const updatedUsers = users.map(u => {
+            const hasFeedback = mergedList.some(f => f.userId === u.id);
+            return hasFeedback ? { ...u, checked: true } : u;
+          });
+          saveUsers(updatedUsers);
+          return { feedback: mergedList, users: updatedUsers };
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to load remote feedback from Google Sheets:', err);
+    }
+  }
+
   return null;
 }
 
